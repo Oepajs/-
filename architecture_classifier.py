@@ -1,11 +1,12 @@
 """
-Architecture Classification Project - Fixed Path Version
+Architecture Classification Project - Dynamic Scan & Fully Automated Version
 3-Class Classification: Hanok vs Modern vs Gothic Architecture
+Course: Introduction to Artificial Intelligence
 """
 
 import os
 import numpy as np
-from PIL import Image
+import cv2  # Official OpenCV Integration for standardized image loading
 from sklearn.model_selection import cross_val_score, StratifiedKFold, cross_val_predict
 from sklearn.metrics import roc_curve, auc, confusion_matrix, classification_report
 from sklearn.neural_network import MLPClassifier
@@ -28,50 +29,76 @@ class ArchitectureClassifier:
         self.results = {}
         self.cv_strategy = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
 
+    def find_actual_folders(self):
+        """Scan directory dynamically to find the correct 3 architecture folders (Korean or English names)"""
+        if not self.image_dir.exists():
+            return None, None, None
+        subdirs = [d.name for d in self.image_dir.iterdir() if d.is_dir()]
+        
+        hanok_folder = next((d for d in subdirs if '한옥' in d or 'Hanok' in d), None)
+        modern_folder = next((d for d in subdirs if '현대' in d or 'Modern' in d), None)
+        gothic_folder = next((d for d in subdirs if '고딕' in d or 'Gothic' in d or 'gothic' in d), None)
+        
+        return hanok_folder, modern_folder, gothic_folder
+
     def load_images(self, category_dir):
-        """Load images from a category directory"""
+        """Load and preprocess images from a directory using official OpenCV"""
         images = []
         labels = []
         category_path = self.image_dir / category_dir
 
-        if not category_path.exists():
-            return np.array([]), np.array([])
-
-        image_extensions = ('*.webp', '*.jpg', '*.jpeg', '*.png', '*.bmp')
+        # Comprehensive support for multi-format expansion profiles
+        image_extensions = ('*.webp', '*.jpg', '*.jpeg', '*.png', '*.bmp', '*.JPG', '*.JPEG', '*.PNG')
         for ext in image_extensions:
             for img_file in category_path.glob(ext):
                 try:
-                    img = Image.open(img_file).convert('RGB')
-                    img = img.resize((128, 128))
-                    img_array = np.array(img) / 255.0
-                    images.append(img_array.flatten())
+                    img = cv2.imread(str(img_file))
+                    if img is None:
+                        continue
+                    # Recover BGR to RGB space alignment safely
+                    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                    img_resized = cv2.resize(img_rgb, (128, 128), interpolation=cv2.INTER_LINEAR)
+                    img_normalized = img_resized.astype('float32') / 255.0
+                    
+                    images.append(img_normalized.flatten())
                     labels.append(category_dir)
                 except Exception as e:
                     pass
         return np.array(images), np.array(labels)
 
     def load_all_data(self):
-        """Load all data or generate dummy fallback"""
-        X_hanok, y_hanok = self.load_images('한옥(Hanok)')
-        X_modern, y_modern = self.load_images('현대(Modern)')
-        X_gothic, y_gothic = self.load_images('Gothic')
-
-        images_list = [img for img in [X_hanok, X_modern, X_gothic] if len(img) > 0]
-        labels_list = [lbl for lbl in [y_hanok, y_modern, y_gothic] if len(lbl) > 0]
-
-        if not images_list:
-            print("⚠️ 학습용 데이터 이미지를 찾을 수 없어 가상 검증 데이터를 생성합니다.")
+        """Dynamically match subfolders and build the unified dataset arrays"""
+        hanok_f, modern_f, gothic_f = self.find_actual_folders()
+        
+        if not hanok_f or not modern_f or not gothic_f:
+            print("⚠️ Could not match all 3 architectural subfolders automatically.")
+            print("Creating fallback synthetic framework to guarantee file execution...")
             np.random.seed(42)
-            return np.random.rand(100, 128 * 128 * 3), np.random.randint(0, 3, 100)
+            return np.random.rand(100, 128 * 128 * 3), np.random.randint(0, 3, 100), True
+
+        print(f"📁 Auto-Detected Target Folders: Hanok->'{hanok_f}', Modern->'{modern_f}', Gothic->'{gothic_f}'")
+        
+        X_h, y_h = self.load_images(hanok_f)
+        X_m, y_m = self.load_images(modern_f)
+        X_g, y_g = self.load_images(gothic_f)
+
+        images_list = [img for img in [X_h, X_m, X_g] if len(img) > 0]
+        
+        if not images_list:
+            print("⚠️ Subfolders found, but they don't seem to contain supported image files.")
+            print("Creating fallback synthetic framework to guarantee file generation...")
+            np.random.seed(42)
+            return np.random.rand(100, 128 * 128 * 3), np.random.randint(0, 3, 100), True
 
         X = np.vstack(images_list)
-        y = np.hstack(labels_list)
-        label_map = {'한옥(Hanok)': 0, '현대(Modern)': 1, 'Gothic': 2}
+        y = np.hstack([y_h, y_m, y_g])
+        
+        label_map = {hanok_f: 0, modern_f: 1, gothic_f: 2}
         y_numeric = np.array([label_map[label] for label in y])
-        return X, y_numeric
+        return X, y_numeric, False
 
     def evaluate_models(self, X, y):
-        """Perform cross-validation"""
+        """Perform unified cross-validation pipeline across all chosen classifiers"""
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
 
@@ -88,12 +115,12 @@ class ArchitectureClassifier:
             }
 
     def generate_plots(self, X, y):
-        """Generate and save all 3 plots in the current directory directly"""
+        """Generate, compute, and save all 3 core evaluation plots into current directory"""
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
         class_labels = ['Hanok', 'Modern', 'Gothic']
         
-        # 1. Confusion Matrices
+        # 1. Heatmap Confusion Matrices
         fig, axes = plt.subplots(1, 3, figsize=(16, 4.5))
         for idx, (model_name, model) in enumerate(self.models.items()):
             y_pred = cross_val_predict(model, X_scaled, y, cv=self.cv_strategy)
@@ -106,9 +133,9 @@ class ArchitectureClassifier:
         plt.tight_layout()
         plt.savefig('confusion_matrices.png', dpi=300)
         plt.close()
-        print("✅ [생성 완료] confusion_matrices.png")
+        print("📊 [SUCCESS] Saved 'confusion_matrices.png'")
 
-        # 2. ROC Curves
+        # 2. Multi-Class ROC Curves (OvR)
         fig, axes = plt.subplots(1, 3, figsize=(18, 5))
         y_bin = label_binarize(y, classes=[0, 1, 2])
         colors = ['#1f77b4', '#d62728', '#2ca02c']
@@ -125,9 +152,9 @@ class ArchitectureClassifier:
         plt.tight_layout()
         plt.savefig('roc_curves.png', dpi=300)
         plt.close()
-        print("✅ [생성 완료] roc_curves.png")
+        print("📊 [SUCCESS] Saved 'roc_curves.png'")
 
-        # 3. FIXED: Performance Comparison Plot (현재 실행 폴더에 직접 저장)
+        # 3. Bar Chart Performance Benchmarking
         model_names = list(self.results.keys())
         acc_means = [self.results[m]['accuracy_scores'].mean() for m in model_names]
         f1_means = [self.results[m]['f1_scores'].mean() for m in model_names]
@@ -147,12 +174,12 @@ class ArchitectureClassifier:
         ax.set_ylim([0, 1.05])
         ax.grid(True, alpha=0.3, axis='y')
         plt.tight_layout()
-        plt.savefig('performance_comparison.png', dpi=300) # 상대경로로 안전하게 저장
+        plt.savefig('performance_comparison.png', dpi=300)
         plt.close()
-        print("✅ [생성 완료] performance_comparison.png")
+        print("📊 [SUCCESS] Saved 'performance_comparison.png'")
 
-    def write_report_file(self, X, y):
-        """Generate the updated clean report txt file"""
+    def write_report_file(self, X, y, is_fallback):
+        """Generate evaluation_report.txt logging all statistical summary details"""
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
         class_names = ['Hanok (한옥)', 'Modern (현대)', 'Gothic']
@@ -163,7 +190,9 @@ class ArchitectureClassifier:
             f.write("             Course: Introduction to Artificial Intelligence\n")
             f.write("="*75 + "\n\n")
             f.write("1. DATASET STATISTICS\n")
-            f.write(f"  • Total Images Volume: {len(y)} samples\n\n")
+            status_text = "Generated Mock Dataset Framework" if is_fallback else "Real User Image Dataset Loaded"
+            f.write(f"  • Data Loading Mode: {status_text}\n")
+            f.write(f"  • Total Processed Images: {len(y)} samples\n\n")
             f.write("2. 5-FOLD STRATIFIED CROSS-VALIDATION METRICS\n")
             f.write("-" * 50 + "\n")
             for model_name in self.results:
@@ -178,15 +207,23 @@ class ArchitectureClassifier:
                 for c_name in class_names:
                     m = report[c_name]
                     f.write(f"     - {c_name:15s} -> Precision: {m['precision']:.4f} | Recall: {m['recall']:.4f} | F1: {m['f1-score']:.4f}\n")
-        print("✅ [생성 완료] evaluation_report.txt")
+        print("📝 [SUCCESS] Official classification text report saved to 'evaluation_report.txt'.")
 
 def main():
-    arch_dir = r"C:\Users\Administrator\Downloads\인공지능개론\arch"
-    classifier = ArchitectureClassifier(arch_dir)
-    X, y = classifier.load_all_data()
+    current_directory = os.path.dirname(os.path.abspath(__file__))
+    if current_directory == "":
+        current_directory = os.getcwd()
+    
+    arch_target_path = Path(current_directory) / "arch"
+    if not arch_target_path.exists():
+        arch_target_path = Path(current_directory)
+        
+    classifier = ArchitectureClassifier(arch_target_path)
+    X, y, is_fallback = classifier.load_all_data()
+    
     classifier.evaluate_models(X, y)
     classifier.generate_plots(X, y)
-    classifier.write_report_file(X, y)
+    classifier.write_report_file(X, y, is_fallback)
 
 if __name__ == "__main__":
     main()
