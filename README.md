@@ -72,3 +72,4 @@ GitHub 저장소는 아래와 같이 깔끔하게 정돈되어 제출됩니다.
 ├── roc_curves.png             <-- [출력 자료] OvR ROC-AUC 성능 평가 곡선
 ├── evaluation_report.txt      <-- [출력 자료] 최종 텍스트 스코어 레포트
 └── README.md                  <-- 현재 메인 안내 파일 (본 문서)
+└── README.txt                 <-- GITHUB 없이 열기 가능한 txt 안내 파일   
